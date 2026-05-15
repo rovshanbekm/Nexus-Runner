@@ -3,10 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import {
-  ArrowLeft,
-  ArrowRight,
-  ChevronDown,
-  ChevronUp,
   Coins,
   Lock,
   Pause,
@@ -16,6 +12,7 @@ import {
   ShoppingBag,
   ShoppingCart,
   Sparkles,
+  Square,
   Trophy,
   User,
   X,
@@ -43,7 +40,7 @@ type Skin = {
   price: number;
   color: number;
   emissive: number;
-  pattern: "plain" | "stripe" | "bolt" | "target";
+  pattern: "plain" | "stripe" | "bolt" | "target" | "wave" | "grid" | "split" | "star" | "rings";
   preview: string;
 };
 
@@ -91,6 +88,64 @@ const skinCatalog: Skin[] = [
     emissive: 0x6d28d9,
     pattern: "bolt",
     preview: "linear-gradient(135deg,#111827,#a78bfa 45%,#fef08a 46% 58%,#6d28d9 59%)"
+  },
+  {
+    id: "emerald-wave",
+    name: "Zumrad to'lqin",
+    price: 10000,
+    color: 0x34d399,
+    emissive: 0x047857,
+    pattern: "wave",
+    preview:
+      "repeating-radial-gradient(circle at 35% 35%,#d1fae5 0 8px,#34d399 9px 21px,#065f46 22px 30px)"
+  },
+  {
+    id: "ice-grid",
+    name: "Muz panjara",
+    price: 12000,
+    color: 0x93c5fd,
+    emissive: 0x1d4ed8,
+    pattern: "grid",
+    preview:
+      "linear-gradient(90deg,rgba(255,255,255,.75) 1px,transparent 1px),linear-gradient(#93c5fd,#1d4ed8)"
+  },
+  {
+    id: "sun-split",
+    name: "Quyosh yarim",
+    price: 14000,
+    color: 0xfb923c,
+    emissive: 0xc2410c,
+    pattern: "split",
+    preview: "linear-gradient(135deg,#fef3c7 0 42%,#fb923c 43% 64%,#7c2d12 65%)"
+  },
+  {
+    id: "violet-star",
+    name: "Yulduzli shar",
+    price: 16000,
+    color: 0xc084fc,
+    emissive: 0x7e22ce,
+    pattern: "star",
+    preview: "radial-gradient(circle at 50% 50%,#fef08a 0 16%,#c084fc 17% 54%,#581c87 55%)"
+  },
+  {
+    id: "mint-rings",
+    name: "Halqa mint",
+    price: 18000,
+    color: 0x5eead4,
+    emissive: 0x0f766e,
+    pattern: "rings",
+    preview:
+      "repeating-radial-gradient(circle at 50% 50%,#ccfbf1 0 8px,#5eead4 9px 20px,#134e4a 21px 28px)"
+  },
+  {
+    id: "carbon-grid",
+    name: "Karbon chiziq",
+    price: 22000,
+    color: 0x94a3b8,
+    emissive: 0x334155,
+    pattern: "grid",
+    preview:
+      "linear-gradient(45deg,rgba(255,255,255,.55) 1px,transparent 1px),linear-gradient(135deg,#0f172a,#94a3b8)"
   }
 ];
 const initialSnapshot: Snapshot = {
@@ -162,6 +217,7 @@ export default function GameShell() {
   const [ownedSkins, setOwnedSkins] = useState<string[]>(["cyan"]);
   const [selectedSkin, setSelectedSkin] = useState("cyan");
   const [shopOpen, setShopOpen] = useState(false);
+  const [engineReady, setEngineReady] = useState(false);
   const firebaseReady = useMemo(() => hasClientFirebaseConfig(), []);
   const currentSkin = useMemo(
     () => skinCatalog.find((skin) => skin.id === selectedSkin) ?? skinCatalog[0],
@@ -200,6 +256,19 @@ export default function GameShell() {
     },
     [playerName, refreshScores]
   );
+  const submitScoreRef = useRef(submitScore);
+
+  useEffect(() => {
+    submitScoreRef.current = submitScore;
+  }, [submitScore]);
+
+  const handleCoinCollect = useCallback(() => {
+    setWallet((current) => {
+      const next = current + 1000;
+      window.localStorage.setItem("nexus-wallet", String(next));
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     setSnapshot((current) => ({ ...current, best: readBestScore() }));
@@ -214,45 +283,50 @@ export default function GameShell() {
       return;
     }
 
+    setEngineReady(false);
     const engine = createEngine(
       hostRef.current,
       (nextSnapshot) => {
         setSnapshot(nextSnapshot);
 
         if (nextSnapshot.state === "ended") {
-          submitScore(nextSnapshot);
+          submitScoreRef.current(nextSnapshot);
         }
       },
-      () => {
-        setWallet((current) => {
-          const next = current + 1000;
-          window.localStorage.setItem("nexus-wallet", String(next));
-          return next;
-        });
-      },
+      handleCoinCollect,
       skinCatalog[0]
     );
 
     engineRef.current = engine;
+    setEngineReady(true);
 
     return () => {
       engine.dispose();
       engineRef.current = null;
+      setEngineReady(false);
     };
-  }, [submitScore]);
+  }, [handleCoinCollect]);
 
   useEffect(() => {
     engineRef.current?.setSkin(currentSkin);
   }, [currentSkin]);
 
   const start = () => {
+    if (!engineRef.current) {
+      return;
+    }
+
     submittedRef.current = false;
-    engineRef.current?.start();
+    engineRef.current.start();
   };
 
   const restart = () => {
+    if (!engineRef.current) {
+      return;
+    }
+
     submittedRef.current = false;
-    engineRef.current?.restart();
+    engineRef.current.restart();
   };
 
   const paused = snapshot.state === "paused";
@@ -287,7 +361,17 @@ export default function GameShell() {
       <div ref={hostRef} className="absolute inset-0 touch-none" />
 
       <section className="pointer-events-none relative z-10 flex min-h-dvh flex-col justify-between p-3 sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        {running ? (
+          <button
+            title="To'xtatish"
+            onClick={() => engineRef.current?.stop()}
+            className="pointer-events-auto absolute left-3 top-3 z-20 flex h-11 w-11 items-center justify-center rounded-lg border border-red-200/30 bg-red-500/20 text-red-50 shadow-glow backdrop-blur transition active:scale-95 sm:hidden"
+          >
+            <Square size={18} fill="currentColor" />
+          </button>
+        ) : null}
+
+        <div className={`flex flex-wrap items-start justify-between gap-3 ${running ? "pl-14 sm:pl-0" : ""}`}>
           <div className="glass pointer-events-auto grid min-w-[172px] grid-cols-2 gap-3 rounded-lg px-4 py-3 shadow-glow">
             <Stat icon={<Sparkles size={17} />} label="Ball" value={snapshot.score} />
             <Stat icon={<Trophy size={17} />} label="Rekord" value={snapshot.best} />
@@ -351,10 +435,11 @@ export default function GameShell() {
               <div className="mt-5 flex gap-3">
                 <button
                   onClick={ended ? restart : start}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-amber-300 px-4 py-3 font-black text-slate-950 transition hover:bg-amber-200 active:scale-[0.98]"
+                  disabled={!engineReady}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-amber-300 px-4 py-3 font-black text-slate-950 transition hover:bg-amber-200 active:scale-[0.98] disabled:cursor-wait disabled:bg-cyan-100/35 disabled:text-cyan-950/55"
                 >
                   <Play size={19} />
-                  {ended ? "Qayta o'ynash" : "Boshlash"}
+                  {!engineReady ? "Yuklanmoqda" : ended ? "Qayta o'ynash" : "Boshlash"}
                 </button>
               </div>
 
@@ -378,34 +463,19 @@ export default function GameShell() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-1 items-end justify-between gap-3">
+          <div className="hidden flex-1 items-end justify-between gap-3 sm:flex">
             <button
               title={paused ? "Davom etish" : "Pauza"}
               onClick={() => engineRef.current?.togglePause()}
-              className="pointer-events-auto hidden h-12 w-12 items-center justify-center rounded-lg border border-cyan-100/20 bg-slate-950/60 text-cyan-50 backdrop-blur transition hover:bg-cyan-300/10 sm:flex"
+              className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-lg border border-cyan-100/20 bg-slate-950/60 text-cyan-50 backdrop-blur transition hover:bg-cyan-300/10"
             >
               {paused ? <Play size={21} /> : <Pause size={21} />}
             </button>
 
-            <div className="pointer-events-auto mx-auto grid grid-cols-4 gap-2 sm:hidden">
-              <ControlButton title="Chapga" onClick={() => engineRef.current?.move(-1)}>
-                <ArrowLeft size={24} />
-              </ControlButton>
-              <ControlButton title="Sakrash" onClick={() => engineRef.current?.jump()}>
-                <ChevronUp size={26} />
-              </ControlButton>
-              <ControlButton title="Tagidan o'tish" onClick={() => engineRef.current?.duck()}>
-                <ChevronDown size={26} />
-              </ControlButton>
-              <ControlButton title="O'ngga" onClick={() => engineRef.current?.move(1)}>
-                <ArrowRight size={24} />
-              </ControlButton>
-            </div>
-
             <button
               title="Qayta boshlash"
               onClick={restart}
-              className="pointer-events-auto hidden h-12 w-12 items-center justify-center rounded-lg border border-cyan-100/20 bg-slate-950/60 text-cyan-50 backdrop-blur transition hover:bg-cyan-300/10 sm:flex"
+              className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-lg border border-cyan-100/20 bg-slate-950/60 text-cyan-50 backdrop-blur transition hover:bg-cyan-300/10"
             >
               <RotateCcw size={21} />
             </button>
@@ -486,26 +556,6 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function ControlButton({
-  title,
-  onClick,
-  children
-}: {
-  title: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      title={title}
-      onClick={onClick}
-      className="flex h-14 w-16 items-center justify-center rounded-lg border border-cyan-100/20 bg-slate-950/65 text-cyan-50 shadow-glow backdrop-blur transition active:scale-95"
-    >
-      {children}
-    </button>
-  );
-}
-
 function ShopPanel({
   wallet,
   ownedSkins,
@@ -521,7 +571,7 @@ function ShopPanel({
 }) {
   return (
     <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-slate-950/46 p-3 backdrop-blur-sm">
-      <div className="glass w-full max-w-2xl rounded-lg p-5 shadow-glow sm:p-6">
+      <div className="glass max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-auto rounded-lg p-5 shadow-glow sm:p-6">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-cyan-100">
@@ -547,7 +597,7 @@ function ShopPanel({
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3">
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {skinCatalog.map((skin) => {
             const owned = ownedSkins.includes(skin.id);
             const active = selectedSkin === skin.id;
@@ -696,6 +746,106 @@ function createBallTexture(skin: Skin) {
     ctx.stroke();
   }
 
+  if (skin.pattern === "wave") {
+    ctx.strokeStyle = "#ecfeff";
+    ctx.lineWidth = 14;
+    for (let y = -20; y < 300; y += 44) {
+      ctx.beginPath();
+      for (let x = -20; x <= 276; x += 8) {
+        const waveY = y + Math.sin(x / 22) * 13;
+        if (x === -20) {
+          ctx.moveTo(x, waveY);
+        } else {
+          ctx.lineTo(x, waveY);
+        }
+      }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(6,95,70,0.8)";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(128, 128, 92, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  if (skin.pattern === "grid") {
+    ctx.strokeStyle = "rgba(255,255,255,0.72)";
+    ctx.lineWidth = 8;
+    for (let x = 24; x < 256; x += 44) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 256);
+      ctx.stroke();
+    }
+    for (let y = 24; y < 256; y += 44) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(256, y);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(15,23,42,0.65)";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(28, 28, 200, 200);
+  }
+
+  if (skin.pattern === "split") {
+    const highlight = ctx.createLinearGradient(0, 0, 256, 256);
+    highlight.addColorStop(0, "#fef3c7");
+    highlight.addColorStop(0.5, "#fb923c");
+    highlight.addColorStop(1, "#7c2d12");
+    ctx.fillStyle = highlight;
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = "rgba(15,23,42,0.72)";
+    ctx.beginPath();
+    ctx.moveTo(0, 222);
+    ctx.lineTo(222, 0);
+    ctx.lineTo(256, 0);
+    ctx.lineTo(34, 256);
+    ctx.lineTo(0, 256);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  if (skin.pattern === "star") {
+    ctx.fillStyle = "#fef08a";
+    for (const [cx, cy, radius] of [
+      [128, 128, 78],
+      [54, 58, 28],
+      [204, 64, 24],
+      [58, 204, 22],
+      [210, 202, 30]
+    ] as const) {
+      ctx.beginPath();
+      for (let i = 0; i < 10; i += 1) {
+        const angle = -Math.PI / 2 + (i * Math.PI) / 5;
+        const pointRadius = i % 2 === 0 ? radius : radius * 0.42;
+        const x = cx + Math.cos(angle) * pointRadius;
+        const y = cy + Math.sin(angle) * pointRadius;
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  if (skin.pattern === "rings") {
+    for (let radius = 112; radius >= 24; radius -= 22) {
+      ctx.strokeStyle = radius % 44 === 0 ? "#ccfbf1" : "#134e4a";
+      ctx.lineWidth = 12;
+      ctx.beginPath();
+      ctx.arc(128, 128, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#ccfbf1";
+    ctx.beginPath();
+    ctx.arc(128, 128, 18, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
@@ -765,6 +915,9 @@ function createEngine(
   });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setClearColor(0x071014, 1);
+  renderer.domElement.style.touchAction = "none";
+  renderer.domElement.style.userSelect = "none";
+  renderer.domElement.setAttribute("aria-hidden", "true");
   host.appendChild(renderer.domElement);
 
   const ambient = new THREE.HemisphereLight(0x9af7ff, 0x172033, 2.2);
@@ -893,7 +1046,8 @@ function createEngine(
   let snapshotTimer = 0;
   let duckTimer = 0;
   let playerSkinTexture = playerMaterial.map;
-  let pointerStart: { x: number; y: number } | null = null;
+  let pointerStart: { id: number; x: number; y: number } | null = null;
+  let resizeTimer = 0;
 
   const emit = (force = false) => {
     if (!force && snapshotTimer < 0.12) {
@@ -1243,17 +1397,25 @@ function createEngine(
   };
 
   const onPointerDown = (event: PointerEvent) => {
-    pointerStart = { x: event.clientX, y: event.clientY };
-  };
-
-  const onPointerUp = (event: PointerEvent) => {
-    if (!pointerStart) {
+    if (state !== "running" || event.pointerType === "mouse") {
       return;
     }
 
+    event.preventDefault();
+    pointerStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    host.setPointerCapture?.(event.pointerId);
+  };
+
+  const onPointerUp = (event: PointerEvent) => {
+    if (!pointerStart || pointerStart.id !== event.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
     const dx = event.clientX - pointerStart.x;
     const dy = event.clientY - pointerStart.y;
     pointerStart = null;
+    host.releasePointerCapture?.(event.pointerId);
 
     if (Math.abs(dx) < 22 && Math.abs(dy) < 22) {
       jump();
@@ -1269,6 +1431,17 @@ function createEngine(
     }
   };
 
+  const onPointerCancel = (event: PointerEvent) => {
+    if (pointerStart?.id === event.pointerId) {
+      pointerStart = null;
+    }
+  };
+
+  const resizeSoon = () => {
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(resize, 80);
+  };
+
   const start = () => {
     resetWorld();
     state = "running";
@@ -1278,6 +1451,13 @@ function createEngine(
 
   const restart = () => {
     start();
+  };
+
+  const stop = () => {
+    if (state === "running") {
+      state = "paused";
+      emit(true);
+    }
   };
 
   const togglePause = () => {
@@ -1295,10 +1475,14 @@ function createEngine(
   };
 
   resize();
+  window.requestAnimationFrame(resize);
   window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", resizeSoon);
+  window.visualViewport?.addEventListener("resize", resizeSoon);
   window.addEventListener("keydown", onKeyDown);
-  host.addEventListener("pointerdown", onPointerDown);
-  host.addEventListener("pointerup", onPointerUp);
+  host.addEventListener("pointerdown", onPointerDown, { passive: false });
+  host.addEventListener("pointerup", onPointerUp, { passive: false });
+  host.addEventListener("pointercancel", onPointerCancel);
   animationId = window.requestAnimationFrame(loop);
   emit(true);
 
@@ -1308,6 +1492,7 @@ function createEngine(
     move,
     jump,
     duck,
+    stop,
     togglePause,
     setSkin(skin: Skin) {
       playerSkinTexture?.dispose();
@@ -1319,10 +1504,14 @@ function createEngine(
     },
     dispose() {
       window.cancelAnimationFrame(animationId);
+      window.clearTimeout(resizeTimer);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("orientationchange", resizeSoon);
+      window.visualViewport?.removeEventListener("resize", resizeSoon);
       window.removeEventListener("keydown", onKeyDown);
       host.removeEventListener("pointerdown", onPointerDown);
       host.removeEventListener("pointerup", onPointerUp);
+      host.removeEventListener("pointercancel", onPointerCancel);
       [...obstacles, ...coins].forEach((mesh) => {
         scene.remove(mesh);
       });
